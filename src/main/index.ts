@@ -1,10 +1,16 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow } from "electron";
+import { ChildProcess, exec } from "child_process";
+import { ipcMain } from "electron";
+import { IpcMainEvent } from "electron/main";
 
 let mainWindow: BrowserWindow;
-const isDev: boolean = process.env.ELECTRON_ENV == 'dev';
+const isDev: boolean = process.env.ELECTRON_ENV == "dev";
+let goServerProcess: ChildProcess;
 
-//Render main window w/ configuration settings
+// listen for message to kill whole app
+
 const renderWindow = async () => {
+  startGoServer();
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -13,35 +19,56 @@ const renderWindow = async () => {
     center: true,
     webPreferences: {
       nodeIntegration: true,
-      devTools: isDev
-    }
+      devTools: isDev,
+    },
   });
 
   // Depending on the environment the frontend will either load from the react server or the static html file
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3000/');
+    mainWindow.loadURL("http://localhost:3000/");
   } else {
-    mainWindow.loadFile('./build/index.html');
+    mainWindow.loadFile("./build/index.html");
   }
 
   // Detect if devtools was somehow opened outside development
-  mainWindow.webContents.on('devtools-opened', () => {
+  mainWindow.webContents.on("devtools-opened", () => {
     if (!isDev) {
       mainWindow.webContents.closeDevTools();
     }
   });
 };
 
-app.on('ready', renderWindow);
+const startGoServer = () => {
+  goServerProcess = exec("electron-golang-ws.exe");
+};
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+app.on("ready", renderWindow);
+
+// clicks X button to close whole app
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
+    mainWindow.webContents.send("kill-app");
     app.quit();
   }
 });
 
-app.on('activate', () => {
+app.on("activate", () => {
   if (mainWindow === null) {
     renderWindow();
   }
+});
+
+// listens for a successful connection from renderer.
+// renderer is just communicating a successful connection
+ipcMain.on("render-go", (event: IpcMainEvent, args) => {
+  console.log(args);
+});
+
+ipcMain.on("kill-backend", (_, args) => {
+  mainWindow.webContents.send("kill-app");
+});
+
+ipcMain.on("backend-killed", (_, args) => {
+  // Go server has been killed and now just to kill the server
+  app.quit();
 });
